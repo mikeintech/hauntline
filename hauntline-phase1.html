@@ -29,7 +29,7 @@ const GAME_W = 420, GAME_H = 800;
 const T = 38;                       // tile size
 const COLS = 9, ROWS = 11;
 const ROOM_X = (GAME_W - COLS*T)/2; // 39
-const ROOM_Y = 166;
+const ROOM_Y = 174;
 const tx = c => ROOM_X + (c+0.5)*T;
 const ty = r => ROOM_Y + (r+0.5)*T;
 const C = {
@@ -218,9 +218,9 @@ class Haunt extends Phaser.Scene {
     this.roomPivot = {x:GAME_W/2, y:ROOM_Y + ROWS*T/2};
 
     const post = this.add.graphics().setDepth(-4);
-    post.fillStyle(0x07040d,0.98); post.fillRoundedRect(10,44,GAME_W-20,GAME_H-60,18);
-    post.lineStyle(1.5,0x463a62,0.88); post.strokeRoundedRect(10,44,GAME_W-20,GAME_H-60,18);
-    post.fillStyle(this.haunt.tint,0.04); post.fillRoundedRect(10,44,GAME_W-20,GAME_H-60,18);
+    post.fillStyle(0x07040d,0.98); post.fillRoundedRect(10,54,GAME_W-20,GAME_H-70,18);
+    post.lineStyle(1.5,0x463a62,0.88); post.strokeRoundedRect(10,54,GAME_W-20,GAME_H-70,18);
+    post.fillStyle(this.haunt.tint,0.04); post.fillRoundedRect(10,54,GAME_W-20,GAME_H-70,18);
     post.fillStyle(0x000000,0.16); post.fillRoundedRect(18,152,GAME_W-36,ROOM_Y+ROWS*T-124,16);
     post.lineStyle(1,0x9d8ac4,0.22); post.strokeRoundedRect(22,132,GAME_W-44,ROOM_Y+ROWS*T-114,14);
     post.fillStyle(0x171024,0.34); post.fillRoundedRect(24,130,GAME_W-48,ROOM_Y+ROWS*T-112,14);
@@ -838,9 +838,9 @@ class Haunt extends Phaser.Scene {
     this.subText = this.add.text(62,20,this.haunt.displaySub || this.haunt.sub,{fontFamily:FONT,fontSize:'13px',fontStyle:'700',color:'#efe9fb'}).setOrigin(0,0.5);
     ui.add(this.subText);
     ui.add(this.add.text(62,37,'u/MurmurOfficial \u00b7 today',{fontFamily:FONT,fontSize:'10px',color:C.dim}).setOrigin(0,0.5));
-    ui.add(this.add.text(40,58,'Hauntline',{fontFamily:FONT,fontSize:'16px',fontStyle:'800',color:'#efe9fb'}).setOrigin(0,0.5));
-    ui.add(this.add.text(40,74,'Yesterday\u2019s players are today\u2019s obstacles.',{fontFamily:FONT,fontSize:'9px',color:C.dim}).setOrigin(0,0.5));
-    const hud=this.add.container(40,90); ui.add(hud);
+    ui.add(this.add.text(40,66,'Hauntline',{fontFamily:FONT,fontSize:'16px',fontStyle:'800',color:'#efe9fb'}).setOrigin(0,0.5));
+    ui.add(this.add.text(40,82,'Yesterday\u2019s players are today\u2019s obstacles.',{fontFamily:FONT,fontSize:'9px',color:C.dim}).setOrigin(0,0.5));
+    const hud=this.add.container(40,98); ui.add(hud);
     const hudG=this.add.graphics(); hud.add(hudG);
     hudG.fillStyle(0x110d1d,0.92); hudG.lineStyle(1,0x4f426d,0.9);
     hudG.fillRoundedRect(0,0,340,44,8); hudG.strokeRoundedRect(0,0,340,44,8);
@@ -891,7 +891,7 @@ class Haunt extends Phaser.Scene {
   }
   buildDebugMenu(ui){
     this.debugOpen=false;
-    const btn=this.add.container(344,58); ui.add(btn);
+    const btn=this.add.container(344,66); ui.add(btn);
     const bg=this.add.graphics(); btn.add(bg);
     const drawBtn=()=>{ bg.clear(); bg.fillStyle(this.debugOpen?0x2a2340:0x110d1d,0.9); bg.lineStyle(1,0x5c5276,0.8);
       bg.fillRoundedRect(-22,-10,44,20,7); bg.strokeRoundedRect(-22,-10,44,20,7); };
@@ -900,7 +900,7 @@ class Haunt extends Phaser.Scene {
     btn.setSize(44,20).setInteractive({useHandCursor:true}).on('pointerdown',(pt,lx,ly,ev)=>{
       ev?.stopPropagation(); Sfx.tick(); this.debugOpen=!this.debugOpen; this.debugPanel.setVisible(this.debugOpen); drawBtn();
     });
-    const panel=this.add.container(252,74).setVisible(false); ui.add(panel); this.debugPanel=panel;
+    const panel=this.add.container(252,82).setVisible(false); ui.add(panel); this.debugPanel=panel;
     const pg=this.add.graphics(); panel.add(pg);
     pg.fillStyle(0x0c0914,0.96); pg.lineStyle(1,0x4f426d,0.95);
     pg.fillRoundedRect(0,0,128,92,9); pg.strokeRoundedRect(0,0,128,92,9);
