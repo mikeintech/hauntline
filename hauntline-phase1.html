@@ -13,6 +13,7 @@
   canvas{touch-action:none;display:block;margin:auto;}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
 </head>
 <body>
 <div id="game"></div>
@@ -48,32 +49,124 @@ const C = {
 };
 const FONT = '"Avenir Next","Nunito","Segoe UI",system-ui,sans-serif';
 
-/* ---------- tiny synth (muted by default) ---------- */
+/* ---------- layered procedural audio (muted by default) ---------- */
 const Sfx = {
-  ctx:null, on:false,
-  ensure(){ if(!this.ctx){ try{ this.ctx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} } if(this.ctx&&this.ctx.state==='suspended')this.ctx.resume(); },
-  tone(f0,f1,dur,type='sine',vol=0.12,delay=0){
-    if(!this.on||!this.ctx)return;
-    const t=this.ctx.currentTime+delay, o=this.ctx.createOscillator(), g=this.ctx.createGain();
-    o.type=type; o.frequency.setValueAtTime(f0,t);
-    if(f1!==f0)o.frequency.exponentialRampToValueAtTime(Math.max(f1,1),t+dur);
-    g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
-    o.connect(g).connect(this.ctx.destination); o.start(t); o.stop(t+dur+0.02);
+  on:false, ready:false, hauntKey:'ask',
+  ensure(){
+    if(!window.Tone)return false;
+    if(!this.ready)this.init();
+    Tone.start();
+    return true;
   },
-  dash(){this.tone(340,120,0.16,'sawtooth',0.06);}
-, thud(){this.tone(110,60,0.12,'sine',0.18);}
-, shimmer(){this.tone(1180,1560,0.12,'sine',0.05);}
-, poof(){this.tone(300,80,0.28,'triangle',0.10);}
-, bell(){this.tone(660,660,1.0,'sine',0.16);this.tone(990,990,0.9,'sine',0.10,0.01);this.tone(1320,1320,0.5,'sine',0.05,0.02);}
-, stamp(){this.tone(180,70,0.09,'square',0.16);}
-, tick(){this.tone(880,880,0.04,'square',0.05);}
-, chargeStart(){ if(!this.on||!this.ctx)return; this.stopCharge();
-    const o=this.ctx.createOscillator(),g=this.ctx.createGain();
-    o.type='sine';o.frequency.value=140;g.gain.value=0.035;
-    o.connect(g).connect(this.ctx.destination);o.start();
-    this._c={o,g}; }
-, chargeSet(p){ if(this._c)this._c.o.frequency.value=140+p*220; }
-, stopCharge(){ if(this._c){try{this._c.g.gain.setTargetAtTime(0.0001,this.ctx.currentTime,0.02);this._c.o.stop(this.ctx.currentTime+0.1);}catch(e){} this._c=null;} }
+  init(){
+    if(this.ready || !window.Tone)return;
+    this.master=new Tone.Gain(0.72).toDestination();
+    this.reverb=new Tone.Reverb({decay:2.8,preDelay:0.018,wet:0.26}).connect(this.master);
+    this.delay=new Tone.FeedbackDelay({delayTime:0.115,feedback:0.24,wet:0.18}).connect(this.reverb);
+    this.impactBus=new Tone.Gain(0.9).connect(this.reverb);
+    this.magicBus=new Tone.Gain(0.72).connect(this.delay);
+    this.uiBus=new Tone.Gain(0.45).connect(this.master);
+    this.ambientBus=new Tone.Gain(0.045).connect(this.reverb);
+    this.ready=true;
+  },
+  setOn(v){
+    this.on=!!v;
+    this.ensure();
+    if(!this.on){ this.stopCharge(); this.stopAmbient(); return; }
+    this.startAmbient();
+  },
+  setHaunt(h){
+    this.hauntKey=h?.key || 'ask';
+    if(this.on)this.startAmbient();
+  },
+  disposeLater(node,ms=1600){ setTimeout(()=>{try{node.dispose();}catch(e){}},ms); },
+  synth(Ctor,opts,bus){ const s=new Ctor(opts).connect(bus); this.disposeLater(s); return s; },
+  noise(opts,bus,ms=900){
+    const dur=opts.dur||0.12, clean=Object.assign({},opts);
+    delete clean.dur;
+    const n=new Tone.NoiseSynth(clean).connect(bus);
+    n.triggerAttackRelease(dur);
+    this.disposeLater(n,ms);
+  },
+  dash(){
+    if(!this.on||!this.ensure())return;
+    this.synth(Tone.MembraneSynth,{pitchDecay:0.025,octaves:4,envelope:{attack:0.001,decay:0.16,sustain:0,release:0.08},volume:-13},this.impactBus).triggerAttackRelease('C2','16n');
+    this.noise({noise:{type:'pink'},envelope:{attack:0.004,decay:0.18,sustain:0,release:0.12},volume:-20,dur:0.16},this.magicBus,700);
+    this.synth(Tone.Synth,{oscillator:{type:'triangle'},envelope:{attack:0.001,decay:0.08,sustain:0,release:0.05},volume:-22},this.magicBus).triggerAttackRelease('A5','32n');
+  },
+  thud(){
+    if(!this.on||!this.ensure())return;
+    this.synth(Tone.MembraneSynth,{pitchDecay:0.055,octaves:2.2,envelope:{attack:0.001,decay:0.24,sustain:0,release:0.16},volume:-8},this.impactBus).triggerAttackRelease('G1','8n');
+    this.noise({noise:{type:'brown'},envelope:{attack:0.001,decay:0.09,sustain:0,release:0.12},volume:-17,dur:0.11},this.impactBus,600);
+  },
+  shimmer(){
+    if(!this.on||!this.ensure())return;
+    ['D6','A6','E7'].forEach((n,i)=>this.synth(Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:0.002,decay:0.12,sustain:0,release:0.18},volume:-26+i},this.magicBus).triggerAttackRelease(n,'16n',Tone.now()+i*0.018));
+  },
+  poof(){
+    if(!this.on||!this.ensure())return;
+    this.noise({noise:{type:'pink'},envelope:{attack:0.006,decay:0.32,sustain:0,release:0.26},volume:-15,dur:0.28},this.magicBus,1000);
+    this.synth(Tone.MembraneSynth,{pitchDecay:0.08,octaves:3,envelope:{attack:0.002,decay:0.38,sustain:0,release:0.2},volume:-16},this.impactBus).triggerAttackRelease('A1','8n');
+  },
+  bell(){
+    if(!this.on||!this.ensure())return;
+    const now=Tone.now(), notes=['E5','B5','E6','G#6'];
+    notes.forEach((n,i)=>this.synth(Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:0.003,decay:1.1-i*0.12,sustain:0.08,release:1.8},volume:-12-i*3},this.magicBus).triggerAttackRelease(n,1.6,now+i*0.018));
+    this.synth(Tone.MetalSynth,{frequency:380,envelope:{attack:0.001,decay:1.1,release:1.2},harmonicity:5.1,modulationIndex:18,resonance:3600,octaves:1.7,volume:-20},this.magicBus).triggerAttackRelease('2n');
+  },
+  stamp(){
+    if(!this.on||!this.ensure())return;
+    this.synth(Tone.MembraneSynth,{pitchDecay:0.02,octaves:1.3,envelope:{attack:0.001,decay:0.12,sustain:0,release:0.08},volume:-11},this.impactBus).triggerAttackRelease('D2','16n');
+    this.synth(Tone.Synth,{oscillator:{type:'square'},envelope:{attack:0.001,decay:0.055,sustain:0,release:0.04},volume:-21},this.uiBus).triggerAttackRelease('C4','32n');
+  },
+  tick(){
+    if(!this.on||!this.ensure())return;
+    this.synth(Tone.Synth,{oscillator:{type:'triangle'},envelope:{attack:0.001,decay:0.035,sustain:0,release:0.025},volume:-26},this.uiBus).triggerAttackRelease('C6','32n');
+  },
+  chargeStart(){
+    if(!this.on||!this.ensure())return;
+    this.stopCharge();
+    const hum=new Tone.Oscillator(116,'sine').connect(this.magicBus);
+    const humGain=new Tone.Gain(0.018).connect(this.magicBus);
+    hum.disconnect(); hum.connect(humGain);
+    const shimmer=new Tone.Oscillator(464,'triangle').connect(this.magicBus);
+    const shimGain=new Tone.Gain(0.003).connect(this.magicBus);
+    shimmer.disconnect(); shimmer.connect(shimGain);
+    hum.start(); shimmer.start();
+    this._c={hum,humGain,shimmer,shimGain};
+  },
+  chargeSet(p){
+    if(!this._c||!this.ready)return;
+    const t=Tone.now(), power=Phaser.Math.Clamp(p||0,0,1);
+    this._c.hum.frequency.rampTo(105+power*165,0.04);
+    this._c.shimmer.frequency.rampTo(420+power*360,0.05);
+    this._c.humGain.gain.rampTo(0.012+power*0.034,0.05);
+    this._c.shimGain.gain.rampTo(0.002+power*0.01,0.05);
+  },
+  stopCharge(){
+    if(!this._c)return;
+    const c=this._c; this._c=null;
+    try{
+      c.humGain.gain.rampTo(0.0001,0.06); c.shimGain.gain.rampTo(0.0001,0.05);
+      c.hum.stop('+0.08'); c.shimmer.stop('+0.08');
+      this.disposeLater(c.hum,180); this.disposeLater(c.humGain,180); this.disposeLater(c.shimmer,180); this.disposeLater(c.shimGain,180);
+    }catch(e){}
+  },
+  startAmbient(){
+    if(!this.on||!this.ready)return;
+    this.stopAmbient();
+    const settings={ask:[520,0.034,0.18],aita:[390,0.028,0.12],nosleep:[240,0.04,0.08]}[this.hauntKey] || [420,0.03,0.14];
+    const filter=new Tone.Filter(settings[0],'lowpass').connect(this.ambientBus);
+    const noise=new Tone.Noise('pink').connect(filter);
+    const lfo=new Tone.LFO(settings[2],settings[1]*0.45,settings[1]).connect(this.ambientBus.gain);
+    noise.start(); lfo.start();
+    this.ambient={noise,filter,lfo};
+  },
+  stopAmbient(){
+    if(!this.ambient)return;
+    const a=this.ambient; this.ambient=null;
+    try{ a.noise.stop(); a.lfo.stop(); a.noise.dispose(); a.filter.dispose(); a.lfo.dispose(); }catch(e){}
+  }
 };
 
 /* ---------- room data ---------- */
@@ -148,6 +241,7 @@ class Haunt extends Phaser.Scene {
     /* ---- state ---- */
     this.channelIndex = data.channelIndex ?? 0;
     this.haunt = DEMO_CHANNELS[this.channelIndex] || DEMO_CHANNELS[0];
+    Sfx.setHaunt(this.haunt);
     this.roomPalette = Object.assign({}, C, this.haunt.palette || {});
     this.obstacles = (this.haunt.obstacles || OBST).map(o=>Object.assign({},o));
     this.switchingChannel=false;
@@ -876,7 +970,7 @@ class Haunt extends Phaser.Scene {
       else { sg.lineStyle(1.6,0x6a5f86,1); sg.lineBetween(-9,9,9,-9); } };
     drawS();
     st.setSize(30,30).setInteractive({useHandCursor:true}).on('pointerdown',(pt,lx,ly,ev)=>{
-      ev.stopPropagation(); Sfx.ensure(); Sfx.on=!Sfx.on; drawS(); if(Sfx.on)Sfx.tick();
+      ev.stopPropagation(); Sfx.setOn(!Sfx.on); drawS(); if(Sfx.on)Sfx.tick();
     });
     // stats mini
     this.deathCounter=this.add.text(GAME_W-38,GAME_H-30,'',{fontFamily:FONT,fontSize:'10px',color:C.dim}).setOrigin(1,0.5).setDepth(70);
