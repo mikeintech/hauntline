@@ -30,6 +30,8 @@ const T = 38;                       // tile size
 const COLS = 9, ROWS = 11;
 const ROOM_X = (GAME_W - COLS*T)/2; // 39
 const ROOM_Y = 174;
+const DEV_CAROUSEL_DEFAULT = true;
+const DEV_CAROUSEL_DELAY = 2200;
 const tx = c => ROOM_X + (c+0.5)*T;
 const ty = r => ROOM_Y + (r+0.5)*T;
 const C = {
@@ -150,6 +152,8 @@ class Haunt extends Phaser.Scene {
     this.obstacles = (this.haunt.obstacles || OBST).map(o=>Object.assign({},o));
     this.switchingChannel=false;
     this.input.enabled=true;
+    this.devCycle = data.devCycle ?? DEV_CAROUSEL_DEFAULT;
+    this.devCycleEvent = null;
     window.hauntlineScene = this;
     this.worldT = 0; this.fx = 1; this.fxTarget = 1;
     this._watchState = null; this._watchStateSince = 0;
@@ -174,7 +178,8 @@ class Haunt extends Phaser.Scene {
     this.buildUI();
     this.buildAmbient();
     this.bindInput();
-    this.enterRoomSequence();
+    this.enterRoomSequence({skipIntro:!!data.skipIntro});
+    this.startDevCycle();
   }
 
   /* ---------------- textures ---------------- */
@@ -898,7 +903,7 @@ class Haunt extends Phaser.Scene {
     drawBtn();
     btn.add(this.add.text(0,0,'DEV',{fontFamily:FONT,fontSize:'8px',fontStyle:'800',color:C.dim}).setOrigin(0.5));
     btn.setSize(44,20).setInteractive({useHandCursor:true}).on('pointerdown',(pt,lx,ly,ev)=>{
-      ev?.stopPropagation(); Sfx.tick(); this.debugOpen=!this.debugOpen; this.debugPanel.setVisible(this.debugOpen); drawBtn();
+      ev?.stopPropagation(); this.stopDevCycle(); Sfx.tick(); this.debugOpen=!this.debugOpen; this.debugPanel.setVisible(this.debugOpen); drawBtn();
     });
     const panel=this.add.container(252,82).setVisible(false); ui.add(panel); this.debugPanel=panel;
     const pg=this.add.graphics(); panel.add(pg);
@@ -914,7 +919,7 @@ class Haunt extends Phaser.Scene {
       rg.fillRoundedRect(0,0,112,16,6); rg.strokeRoundedRect(0,0,112,16,6);
       row.add(this.add.text(8,8,cfg.displaySub || cfg.sub,{fontFamily:FONT,fontSize:'8px',fontStyle:active?'800':'600',color:active?'#fff9ff':C.dim}).setOrigin(0,0.5));
       row.setSize(112,16).setInteractive({useHandCursor:true}).on('pointerdown',(pt,lx,ly,ev)=>{
-        ev?.stopPropagation(); this.switchChannel(i);
+        ev?.stopPropagation(); this.stopDevCycle(); this.switchChannel(i);
       });
     });
   }
@@ -936,7 +941,7 @@ class Haunt extends Phaser.Scene {
     panel.add(this.metaText);
     panel.add(this.add.text(12,71,'Sample haunts - Murmur watching',{fontFamily:FONT,fontSize:'8px',fontStyle:'700',color:C.accentHex}).setOrigin(0,0.5));
   }
-  switchChannel(index){
+  switchChannel(index, opts={}){
     if(index===this.channelIndex || this.switchingChannel)return;
     this.switchingChannel=true;
     this.input.enabled=false;
@@ -944,7 +949,26 @@ class Haunt extends Phaser.Scene {
     this.cancelPlayerIdleBit(false);
     this.aimG?.clear();
     Sfx.stopCharge();
-    this.time.delayedCall(0,()=>this.scene.restart({channelIndex:index}));
+    this.time.delayedCall(0,()=>this.scene.restart({channelIndex:index, devCycle:!!opts.devCycle}));
+  }
+  startDevCycle(){
+    if(!this.devCycle)return;
+    this.safeRemove(this.devCycleEvent);
+    this.devCycleEvent=this.time.delayedCall(DEV_CAROUSEL_DELAY,()=>this.advanceDevCycle());
+  }
+  stopDevCycle(){
+    if(!this.devCycle)return;
+    this.devCycle=false;
+    this.safeRemove(this.devCycleEvent);
+    this.devCycleEvent=null;
+  }
+  advanceDevCycle(){
+    if(!this.devCycle || this.switchingChannel)return;
+    if(this.state!=='idle' || this.aim){ this.startDevCycle(); return; }
+    this.switchingChannel=true;
+    this.input.enabled=false;
+    Sfx.stopCharge();
+    this.scene.restart({channelIndex:(this.channelIndex+1)%DEMO_CHANNELS.length,devCycle:true,skipIntro:true});
   }
   syncRunSummary(extra={}){
     Object.assign(this.runSummary, {
@@ -974,6 +998,7 @@ class Haunt extends Phaser.Scene {
   bindInput(){
     this.aim=null; this.buffered=null; this.cooldownUntil=0;
     this.input.on('pointerdown',p=>{
+      this.stopDevCycle();
       Sfx.ensure(); this.idleT=0;
       if(this.murmurAsleep){ this.murmurPose('surprised'); this.time.delayedCall(300,()=>this.murmurPose('idle')); }
       if(this.state==='dead'&&this.deadCardReady){ this.retry(); return; }
@@ -1000,6 +1025,7 @@ class Haunt extends Phaser.Scene {
     window.addEventListener('blur',this._blurCancel);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>{
       this.cancelPlayerIdleBit(false);
+      this.safeRemove(this.devCycleEvent);
       Sfx.stopCharge();
       if(this._blurCancel) window.removeEventListener('blur',this._blurCancel);
     });
@@ -1025,8 +1051,14 @@ class Haunt extends Phaser.Scene {
   }
 
   /* ---------------- run flow ---------------- */
-  enterRoomSequence(){
+  enterRoomSequence(opts={}){
     // ghosts fade+trails draw staggered, runner drops (A5)
+    if(opts.skipIntro){
+      this.ghosts.forEach(g=>{ g.c.setAlpha(1); g.label.setAlpha(0.5); });
+      this.player.x=tx(START.c); this.player.y=ty(START.r); this.player.setAlpha(1);
+      this.murmurPose('idle');
+      return;
+    }
     this.ghosts.forEach((g,i)=>{ g.c.setAlpha(0); g.label.setAlpha(0);
       this.tweens.add({targets:[g.c],alpha:1,delay:120+i*100,duration:260});
       this.tweens.add({targets:[g.label],alpha:0.5,delay:120+i*100,duration:260}); });
@@ -1036,6 +1068,7 @@ class Haunt extends Phaser.Scene {
     this.time.delayedCall(760,()=>{ this.murmurPose('idle'); });
   }
   launch(v){
+    this.stopDevCycle();
     if(!this.firstControl){this.firstControl=true;this.sessionStart=this.worldT;}
     this.state='dashing';
     this.dashDir={x:v.dx,y:v.dy}; this.dashLeft=v.dist; this.dashSpeed=560*(this.haunt.dashSpeedMul || 1);
@@ -1154,6 +1187,7 @@ class Haunt extends Phaser.Scene {
     this.deadCardReady=false; this.skipDeath=false;
     if(this.deadCard){this.deadCard.destroy();this.deadCard=null;}
     if(this.riseGhost){this.riseGhost.destroy();this.riseGhost=null;}
+    if(this.finalCursePing){this.finalCursePing.destroy();this.finalCursePing=null;}
     this.pathG.clear(); this.trailG.clear(); this.trailPts=[]; this.runPath=[];
     this.tweens.add({targets:this.room,angle:0,duration:150});
     this.resetBat(); this.resetPlaced();
@@ -1460,6 +1494,7 @@ class Haunt extends Phaser.Scene {
     const placedCurseName = ({spring:'Spring Tile', bat:'Sleepy Bat', coin:'False Coin'})[this.cardSel] || 'Curse';
     this.syncRunSummary({lastCursePlaced:placedCurseName});
     this.buildPlaced();
+    this.highlightPlacedCurse(this.placedCurse, placedCurseName);
     // teardown placement UI
     this.tileGlow.destroy(); this.dimmer.destroy(); this.placeZone.destroy();
     this.tweens.add({targets:this.sheet,y:GAME_H+140,duration:260,ease:'Back.in',onComplete:()=>this.sheet.destroy()});
@@ -1518,6 +1553,54 @@ class Haunt extends Phaser.Scene {
       this.placedObjs={type:'bat2',bat:this.bat};
       this.bat2=this.bat; this.bat=old;
     }
+  }
+  drawCurseGlyph(g,type,x=0,y=0,scale=1){
+    if(type==='spring'){
+      g.fillStyle(C.accent,0.95);
+      g.fillRoundedRect(x-13*scale,y+4*scale,26*scale,7*scale,3*scale);
+      g.lineStyle(2*scale,0xfff3e0,1);
+      for(let i=0;i<3;i++){
+        g.beginPath();
+        g.arc(x,y+(2-i*4)*scale,6*scale,0.2,Math.PI-0.2);
+        g.strokePath();
+      }
+      return;
+    }
+    if(type==='coin'){
+      g.fillStyle(C.bell,1);
+      g.fillCircle(x,y,10*scale);
+      g.fillStyle(C.bellDeep,1);
+      g.fillCircle(x,y,7*scale);
+      g.lineStyle(1.5*scale,0xfff3e0,0.9);
+      g.strokeCircle(x,y,10*scale);
+      return;
+    }
+    g.fillStyle(0x8f5acc,0.96);
+    g.fillCircle(x,y+2*scale,8*scale);
+    g.fillTriangle(x-6*scale,y+3*scale,x-17*scale,y-5*scale,x-7*scale,y+8*scale);
+    g.fillTriangle(x+6*scale,y+3*scale,x+17*scale,y-5*scale,x+7*scale,y+8*scale);
+    g.fillStyle(0xfff3e0,0.95);
+    g.fillCircle(x-3*scale,y,1.4*scale);
+    g.fillCircle(x+3*scale,y,1.4*scale);
+  }
+  highlightPlacedCurse(pc,name){
+    if(!pc)return;
+    if(this.finalCursePing){this.finalCursePing.destroy();this.finalCursePing=null;}
+    const x=tx(pc.c), y=ty(pc.r);
+    const c=this.add.container(x,y).setDepth(92);
+    const g=this.add.graphics();
+    g.fillStyle(0x05030a,0.28);
+    g.fillRoundedRect(-22,-22,44,44,8);
+    g.lineStyle(2,0xfff3e0,0.9);
+    g.strokeRoundedRect(-20,-20,40,40,8);
+    g.lineStyle(1.5,C.accent,0.95);
+    g.strokeRoundedRect(-15,-15,30,30,6);
+    this.drawCurseGlyph(g,pc.type,0,0,1);
+    const label=this.add.text(0,-31,name,{fontFamily:FONT,fontSize:'8px',fontStyle:'800',color:'#fff9ff',stroke:'#14101f',strokeThickness:3}).setOrigin(0.5);
+    c.add([g,label]);
+    this.finalCursePing=c;
+    this.tweens.add({targets:c,scale:{from:1.22,to:1},duration:260,ease:'Back.out'});
+    this.tweens.add({targets:c,alpha:{from:1,to:0.72},duration:900,yoyo:true,repeat:-1,ease:'Sine.inOut'});
   }
   resetPlaced(){
     if(this.placedObjs){
