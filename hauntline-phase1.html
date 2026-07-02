@@ -995,9 +995,14 @@ class Haunt extends Phaser.Scene {
   }
 
   /* ---------------- input ---------------- */
+  isPlayablePointer(p){
+    const pad = 10;
+    return p.x>=ROOM_X-pad && p.x<=ROOM_X+COLS*T+pad && p.y>=ROOM_Y-pad && p.y<=ROOM_Y+ROWS*T+pad;
+  }
   bindInput(){
     this.aim=null; this.buffered=null; this.cooldownUntil=0;
     this.input.on('pointerdown',p=>{
+      if(!this.isPlayablePointer(p))return;
       this.stopDevCycle();
       Sfx.ensure(); this.idleT=0;
       if(this.murmurAsleep){ this.murmurPose('surprised'); this.time.delayedCall(300,()=>this.murmurPose('idle')); }
