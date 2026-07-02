@@ -51,22 +51,25 @@ const FONT = '"Avenir Next","Nunito","Segoe UI",system-ui,sans-serif';
 
 /* ---------- layered procedural audio (muted by default) ---------- */
 const Sfx = {
-  on:false, ready:false, hauntKey:'ask',
+  on:true, ready:false, hauntKey:'ask',
   ensure(){
     if(!window.Tone)return false;
     if(!this.ready)this.init();
     Tone.start();
+    if(this.on&&!this.ambient)this.startAmbient();
     return true;
   },
   init(){
     if(this.ready || !window.Tone)return;
-    this.master=new Tone.Gain(0.72).toDestination();
+    this.limiter=new Tone.Limiter(-1).toDestination();
+    this.comp=new Tone.Compressor({threshold:-18,ratio:3,attack:0.003,release:0.18}).connect(this.limiter);
+    this.master=new Tone.Gain(0.68).connect(this.comp);
     this.reverb=new Tone.Reverb({decay:2.8,preDelay:0.018,wet:0.26}).connect(this.master);
     this.delay=new Tone.FeedbackDelay({delayTime:0.115,feedback:0.24,wet:0.18}).connect(this.reverb);
-    this.impactBus=new Tone.Gain(0.9).connect(this.reverb);
-    this.magicBus=new Tone.Gain(0.72).connect(this.delay);
+    this.impactBus=new Tone.Gain(0.86).connect(this.reverb);
+    this.magicBus=new Tone.Gain(0.68).connect(this.delay);
     this.uiBus=new Tone.Gain(0.45).connect(this.master);
-    this.ambientBus=new Tone.Gain(0.045).connect(this.reverb);
+    this.ambientBus=new Tone.Gain(0.05).connect(this.reverb);
     this.ready=true;
   },
   setOn(v){
@@ -81,6 +84,17 @@ const Sfx = {
   },
   disposeLater(node,ms=1600){ setTimeout(()=>{try{node.dispose();}catch(e){}},ms); },
   synth(Ctor,opts,bus){ const s=new Ctor(opts).connect(bus); this.disposeLater(s); return s; },
+  sweepNoise(type,from,to,dur,vol,bus,ms=900){
+    const n=new Tone.Noise(type), f=new Tone.Filter(from,'lowpass'), g=new Tone.Gain(0.0001);
+    n.connect(f); f.connect(g); g.connect(bus);
+    const t=Tone.now();
+    f.frequency.setValueAtTime(from,t);
+    f.frequency.exponentialRampToValueAtTime(Math.max(to,20),t+dur);
+    g.gain.setValueAtTime(vol,t);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    n.start(t); n.stop(t+dur+0.02);
+    this.disposeLater(n,ms); this.disposeLater(f,ms); this.disposeLater(g,ms);
+  },
   noise(opts,bus,ms=900){
     const dur=opts.dur||0.12, clean=Object.assign({},opts);
     delete clean.dur;
@@ -90,72 +104,94 @@ const Sfx = {
   },
   dash(){
     if(!this.on||!this.ensure())return;
-    this.synth(Tone.MembraneSynth,{pitchDecay:0.025,octaves:4,envelope:{attack:0.001,decay:0.16,sustain:0,release:0.08},volume:-13},this.impactBus).triggerAttackRelease('C2','16n');
-    this.noise({noise:{type:'pink'},envelope:{attack:0.004,decay:0.18,sustain:0,release:0.12},volume:-20,dur:0.16},this.magicBus,700);
-    this.synth(Tone.Synth,{oscillator:{type:'triangle'},envelope:{attack:0.001,decay:0.08,sustain:0,release:0.05},volume:-22},this.magicBus).triggerAttackRelease('A5','32n');
+    this.synth(Tone.MembraneSynth,{pitchDecay:0.022,octaves:4.6,envelope:{attack:0.001,decay:0.18,sustain:0,release:0.08},volume:-12},this.impactBus).triggerAttackRelease('C2','16n');
+    this.synth(Tone.Synth,{oscillator:{type:'fatsawtooth',count:2,spread:18},envelope:{attack:0.002,decay:0.09,sustain:0,release:0.06},volume:-24},this.magicBus).triggerAttackRelease('G3','32n');
+    this.sweepNoise('pink',4600,420,0.22,0.075,this.magicBus,800);
+    this.sweepNoise('pink',4200,620,0.2,0.032,this.impactBus,650);
+    this.synth(Tone.Synth,{oscillator:{type:'triangle'},envelope:{attack:0.001,decay:0.055,sustain:0,release:0.05},volume:-24},this.uiBus).triggerAttackRelease('A5','64n');
   },
   thud(){
     if(!this.on||!this.ensure())return;
-    this.synth(Tone.MembraneSynth,{pitchDecay:0.055,octaves:2.2,envelope:{attack:0.001,decay:0.24,sustain:0,release:0.16},volume:-8},this.impactBus).triggerAttackRelease('G1','8n');
-    this.noise({noise:{type:'brown'},envelope:{attack:0.001,decay:0.09,sustain:0,release:0.12},volume:-17,dur:0.11},this.impactBus,600);
+    this.synth(Tone.MembraneSynth,{pitchDecay:0.065,octaves:2.5,envelope:{attack:0.001,decay:0.28,sustain:0,release:0.18},volume:-7},this.impactBus).triggerAttackRelease('F1','8n');
+    this.sweepNoise('brown',940,90,0.16,0.12,this.impactBus,700);
+    this.synth(Tone.Synth,{oscillator:{type:'square'},envelope:{attack:0.001,decay:0.035,sustain:0,release:0.035},volume:-25},this.uiBus).triggerAttackRelease('C3','64n');
   },
   shimmer(){
     if(!this.on||!this.ensure())return;
-    ['D6','A6','E7'].forEach((n,i)=>this.synth(Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:0.002,decay:0.12,sustain:0,release:0.18},volume:-26+i},this.magicBus).triggerAttackRelease(n,'16n',Tone.now()+i*0.018));
+    ['D6','A6','E7','B7'].forEach((n,i)=>this.synth(Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:0.002,decay:0.1,sustain:0,release:0.24},volume:-29+i},this.magicBus).triggerAttackRelease(n,'16n',Tone.now()+i*0.017));
   },
   poof(){
     if(!this.on||!this.ensure())return;
-    this.noise({noise:{type:'pink'},envelope:{attack:0.006,decay:0.32,sustain:0,release:0.26},volume:-15,dur:0.28},this.magicBus,1000);
-    this.synth(Tone.MembraneSynth,{pitchDecay:0.08,octaves:3,envelope:{attack:0.002,decay:0.38,sustain:0,release:0.2},volume:-16},this.impactBus).triggerAttackRelease('A1','8n');
+    this.sweepNoise('pink',1500,120,0.42,0.095,this.magicBus,1200);
+    this.synth(Tone.MembraneSynth,{pitchDecay:0.085,octaves:3.2,envelope:{attack:0.002,decay:0.42,sustain:0,release:0.24},volume:-15},this.impactBus).triggerAttackRelease('A1','8n');
+    this.synth(Tone.FMSynth,{harmonicity:0.5,modulationIndex:4,envelope:{attack:0.01,decay:0.22,sustain:0.05,release:0.55},modulationEnvelope:{attack:0.01,decay:0.18,sustain:0,release:0.2},volume:-28},this.magicBus).triggerAttackRelease('C3',0.58);
   },
   bell(){
     if(!this.on||!this.ensure())return;
     const now=Tone.now(), notes=['E5','B5','E6','G#6'];
-    notes.forEach((n,i)=>this.synth(Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:0.003,decay:1.1-i*0.12,sustain:0.08,release:1.8},volume:-12-i*3},this.magicBus).triggerAttackRelease(n,1.6,now+i*0.018));
-    this.synth(Tone.MetalSynth,{frequency:380,envelope:{attack:0.001,decay:1.1,release:1.2},harmonicity:5.1,modulationIndex:18,resonance:3600,octaves:1.7,volume:-20},this.magicBus).triggerAttackRelease('2n');
+    notes.forEach((n,i)=>this.synth(Tone.Synth,{oscillator:{type:'sine'},envelope:{attack:0.003,decay:1.2-i*0.1,sustain:0.08,release:2.2},volume:-11-i*3},this.magicBus).triggerAttackRelease(n,1.8,now+i*0.019));
+    this.synth(Tone.MetalSynth,{frequency:390,envelope:{attack:0.001,decay:1.25,release:1.45},harmonicity:5.4,modulationIndex:21,resonance:3900,octaves:1.8,volume:-21},this.magicBus).triggerAttackRelease('2n');
+    this.sweepNoise('white',7600,2200,0.55,0.015,this.magicBus,1300);
   },
   stamp(){
     if(!this.on||!this.ensure())return;
-    this.synth(Tone.MembraneSynth,{pitchDecay:0.02,octaves:1.3,envelope:{attack:0.001,decay:0.12,sustain:0,release:0.08},volume:-11},this.impactBus).triggerAttackRelease('D2','16n');
-    this.synth(Tone.Synth,{oscillator:{type:'square'},envelope:{attack:0.001,decay:0.055,sustain:0,release:0.04},volume:-21},this.uiBus).triggerAttackRelease('C4','32n');
+    this.synth(Tone.MembraneSynth,{pitchDecay:0.018,octaves:1.35,envelope:{attack:0.001,decay:0.13,sustain:0,release:0.08},volume:-10},this.impactBus).triggerAttackRelease('D2','16n');
+    this.sweepNoise('brown',1300,260,0.08,0.055,this.impactBus,500);
+    this.synth(Tone.FMSynth,{harmonicity:2,modulationIndex:5,envelope:{attack:0.001,decay:0.13,sustain:0,release:0.16},modulationEnvelope:{attack:0.001,decay:0.08,sustain:0,release:0.05},volume:-25},this.magicBus).triggerAttackRelease('G4','16n');
   },
   tick(){
     if(!this.on||!this.ensure())return;
-    this.synth(Tone.Synth,{oscillator:{type:'triangle'},envelope:{attack:0.001,decay:0.035,sustain:0,release:0.025},volume:-26},this.uiBus).triggerAttackRelease('C6','32n');
+    this.noise({noise:{type:'white'},envelope:{attack:0.001,decay:0.018,sustain:0,release:0.012},volume:-31,dur:0.025},this.uiBus,300);
+    this.synth(Tone.Synth,{oscillator:{type:'triangle'},envelope:{attack:0.001,decay:0.028,sustain:0,release:0.02},volume:-30},this.uiBus).triggerAttackRelease('C6','64n');
   },
   chargeStart(){
     if(!this.on||!this.ensure())return;
     this.stopCharge();
-    const hum=new Tone.Oscillator(116,'sine').connect(this.magicBus);
-    const humGain=new Tone.Gain(0.018).connect(this.magicBus);
-    hum.disconnect(); hum.connect(humGain);
-    const shimmer=new Tone.Oscillator(464,'triangle').connect(this.magicBus);
-    const shimGain=new Tone.Gain(0.003).connect(this.magicBus);
-    shimmer.disconnect(); shimmer.connect(shimGain);
-    hum.start(); shimmer.start();
-    this._c={hum,humGain,shimmer,shimGain};
+    const voiceGain=new Tone.Gain(0.0001).connect(this.magicBus);
+    const throatGain=new Tone.Gain(0.0001).connect(this.magicBus);
+    const inhaleGain=new Tone.Gain(0.0001).connect(this.magicBus);
+    const vowelA=new Tone.Filter({frequency:560,type:'bandpass',Q:5.2}).connect(voiceGain);
+    const vowelB=new Tone.Filter({frequency:960,type:'bandpass',Q:4.2}).connect(voiceGain);
+    const throatFilter=new Tone.Filter({frequency:260,type:'bandpass',Q:3}).connect(throatGain);
+    const inhaleFilter=new Tone.Filter({frequency:620,type:'highpass',Q:0.45}).connect(inhaleGain);
+    const voice=new Tone.Oscillator(118,'triangle').connect(vowelA);
+    const overtone=new Tone.Oscillator(177,'sine').connect(vowelB);
+    const throat=new Tone.Oscillator(59,'triangle').connect(throatFilter);
+    const inhale=new Tone.Noise('pink').connect(inhaleFilter);
+    const wobble=new Tone.LFO(4.8,-13,13);
+    wobble.connect(voice.detune); wobble.connect(overtone.detune);
+    voice.start(); overtone.start(); throat.start(); inhale.start(); wobble.start();
+    this._c={voice,overtone,throat,inhale,wobble,voiceGain,throatGain,inhaleGain,vowelA,vowelB,throatFilter,inhaleFilter};
   },
   chargeSet(p){
     if(!this._c||!this.ready)return;
-    const t=Tone.now(), power=Phaser.Math.Clamp(p||0,0,1);
-    this._c.hum.frequency.rampTo(105+power*165,0.04);
-    this._c.shimmer.frequency.rampTo(420+power*360,0.05);
-    this._c.humGain.gain.rampTo(0.012+power*0.034,0.05);
-    this._c.shimGain.gain.rampTo(0.002+power*0.01,0.05);
+    const power=Phaser.Math.Clamp(p||0,0,1);
+    this._c.voice.frequency.rampTo(108+power*86,0.07);
+    this._c.overtone.frequency.rampTo(162+power*128,0.08);
+    this._c.throat.frequency.rampTo(54+power*38,0.08);
+    this._c.vowelA.frequency.rampTo(500+power*300,0.1);
+    this._c.vowelB.frequency.rampTo(880+power*430,0.11);
+    this._c.throatFilter.frequency.rampTo(230+power*145,0.1);
+    this._c.inhaleFilter.frequency.rampTo(620+power*1150,0.12);
+    this._c.wobble.frequency.rampTo(4.2+power*3.4,0.1);
+    this._c.voiceGain.gain.rampTo(0.014+power*0.036,0.08);
+    this._c.throatGain.gain.rampTo(0.005+power*0.012,0.1);
+    this._c.inhaleGain.gain.rampTo(0.001+power*0.012,0.12);
   },
   stopCharge(){
     if(!this._c)return;
     const c=this._c; this._c=null;
     try{
-      c.humGain.gain.rampTo(0.0001,0.06); c.shimGain.gain.rampTo(0.0001,0.05);
-      c.hum.stop('+0.08'); c.shimmer.stop('+0.08');
-      this.disposeLater(c.hum,180); this.disposeLater(c.humGain,180); this.disposeLater(c.shimmer,180); this.disposeLater(c.shimGain,180);
+      c.voiceGain.gain.rampTo(0.0001,0.07); c.throatGain.gain.rampTo(0.0001,0.06); c.inhaleGain.gain.rampTo(0.0001,0.04);
+      c.voice.stop('+0.1'); c.overtone.stop('+0.1'); c.throat.stop('+0.1'); c.inhale.stop('+0.08'); c.wobble.stop('+0.1');
+      [c.voice,c.overtone,c.throat,c.inhale,c.wobble,c.voiceGain,c.throatGain,c.inhaleGain,c.vowelA,c.vowelB,c.throatFilter,c.inhaleFilter].forEach(n=>this.disposeLater(n,220));
     }catch(e){}
   },
   startAmbient(){
     if(!this.on||!this.ready)return;
     this.stopAmbient();
-    const settings={ask:[520,0.034,0.18],aita:[390,0.028,0.12],nosleep:[240,0.04,0.08]}[this.hauntKey] || [420,0.03,0.14];
+    const settings={ask:[520,0.04,0.18],aita:[390,0.034,0.12],nosleep:[240,0.052,0.08]}[this.hauntKey] || [420,0.036,0.14];
+    this.ambientBus.gain.value=settings[1];
     const filter=new Tone.Filter(settings[0],'lowpass').connect(this.ambientBus);
     const noise=new Tone.Noise('pink').connect(filter);
     const lfo=new Tone.LFO(settings[2],settings[1]*0.45,settings[1]).connect(this.ambientBus.gain);
