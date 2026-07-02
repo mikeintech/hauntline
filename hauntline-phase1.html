@@ -13,6 +13,7 @@
   canvas{touch-action:none;display:block;margin:auto;}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js"></script>
 </head>
 <body>
 <div id="game"></div>
@@ -139,398 +140,153 @@ const SFX_PRESETS = [
 const DEFAULT_SFX_PRESET_INDEX = 0;
 
 const Sfx = {
-  on:true, ready:false, hauntKey:'ask', presetIndex:DEFAULT_SFX_PRESET_INDEX, ambient:null, charge:null, chargeHold:null, loops:[],
-  audioCtx:null, graphReady:false,
-  master:null, limiter:null, compressor:null, reverbInput:null, reverb:null, reverbWet:null,
-  impactBus:null, magicBus:null, uiBus:null, ambientBus:null, dryBus:null,
+  on:true, ready:false, hauntKey:'ask', presetIndex:DEFAULT_SFX_PRESET_INDEX, ambient:null, charge:null, loops:[], cache:new Map(),
 
   get preset(){ return SFX_PRESETS[this.presetIndex] || SFX_PRESETS[0]; },
   presetFor(ref){
     if(ref === undefined || ref === null || ref === 'active') return this.preset;
     if(typeof ref === 'number') return SFX_PRESETS[Math.max(0,Math.min(SFX_PRESETS.length-1,ref))] || this.preset;
-    if(typeof ref === 'string'){
-      return SFX_PRESETS.find(p => p.key === ref) || this.preset;
-    }
+    if(typeof ref === 'string') return SFX_PRESETS.find(p => p.key === ref) || this.preset;
     return ref;
   },
-  fileFor(name,preset=this.preset){
-    return `${ELEVEN_BASE}${preset?.events?.[name] || ''}`;
-  },
+  fileFor(name,preset=this.preset){ return `${ELEVEN_BASE}${preset?.events?.[name] || ''}`; },
   ambientFor(){
     const map={ask:'ask',aita:'aita',nosleep:'nosleep'};
     return `${ELEVEN_BASE}${this.preset.ambient[map[this.hauntKey] || 'ask'] || ''}`;
   },
-  buildImpulse(duration=2.2, decay=2.4){
-    if(!this.audioCtx) return null;
-    const sr=this.audioCtx.sampleRate;
-    const len=Math.max(1,Math.floor(sr*duration));
-    const buf=this.audioCtx.createBuffer(2,len,sr);
-    for(let ch=0; ch<2; ch++){
-      const data=buf.getChannelData(ch);
-      for(let i=0; i<len; i++){
-        const t=i/len;
-        data[i]=(Math.random()*2-1)*Math.pow(1-t,decay);
-      }
-    }
-    return buf;
-  },
-  makeBus(cfg={}){
-    const defaults={lowpass:20000,highpass:20,gain:1,reverbMix:0,delay:0};
-    const c={...defaults,...cfg};
-    if(!this.audioCtx) return {input:null};
-    const input=this.audioCtx.createGain();
-    const hp=this.audioCtx.createBiquadFilter();
-    hp.type='highpass';
-    hp.frequency.value=c.highpass;
-    hp.Q.value=0.65;
-    const lp=this.audioCtx.createBiquadFilter();
-    lp.type='lowpass';
-    lp.frequency.value=c.lowpass;
-    lp.Q.value=0.9;
-    const level=this.audioCtx.createGain();
-    level.gain.value=c.gain;
-
-    input.connect(hp);
-    hp.connect(lp);
-    lp.connect(level);
-    level.connect(this.master);
-
-    if(c.reverbMix>0 && this.reverbInput){
-      const send=this.audioCtx.createGain();
-      send.gain.value=c.reverbMix;
-      level.connect(send);
-      send.connect(this.reverbInput);
-    }
-
-    if(c.delay>0){
-      const d=this.audioCtx.createDelay(2.2);
-      d.delayTime.value=c.delay;
-      const fb=this.audioCtx.createGain();
-      fb.gain.value=0.18;
-      const dOut=this.audioCtx.createGain();
-      dOut.gain.value=0.4;
-      level.connect(d);
-      d.connect(fb);
-      fb.connect(d);
-      d.connect(dOut);
-      dOut.connect(this.master);
-    }
-    return {input};
-  },
-  buildGraph(){
-    if(this.graphReady || !this.audioCtx) return;
-    this.master=this.audioCtx.createGain();
-    this.master.gain.value=0.97;
-    this.compressor=this.audioCtx.createDynamicsCompressor();
-    this.compressor.threshold.value=-15;
-    this.compressor.knee.value=15;
-    this.compressor.ratio.value=3.2;
-    this.compressor.attack.value=0.003;
-    this.compressor.release.value=0.25;
-    this.limiter=this.audioCtx.createDynamicsCompressor();
-    this.limiter.threshold.value=-2;
-    this.limiter.knee.value=0;
-    this.limiter.ratio.value=20;
-    this.limiter.attack.value=0.001;
-    this.limiter.release.value=0.03;
-
-    this.reverb=this.audioCtx.createConvolver();
-    this.reverb.buffer=this.buildImpulse();
-    this.reverbInput=this.audioCtx.createGain();
-    this.reverbInput.gain.value=1;
-    this.reverbWet=this.audioCtx.createGain();
-    this.reverbWet.gain.value=0.13;
-
-    this.master.connect(this.compressor);
-    this.compressor.connect(this.limiter);
-    this.limiter.connect(this.audioCtx.destination);
-    this.reverbInput.connect(this.reverb);
-    this.reverb.connect(this.reverbWet);
-    this.reverbWet.connect(this.master);
-
-    this.impactBus=this.makeBus({name:'impact',lowpass:4200,highpass:75,gain:1,delay:0.022,reverbMix:0.06});
-    this.magicBus=this.makeBus({name:'magic',lowpass:8200,highpass:60,gain:1,delay:0.055,reverbMix:0.12});
-    this.uiBus=this.makeBus({name:'ui',lowpass:11200,highpass:160,gain:0.84,delay:0,reverbMix:0});
-    this.ambientBus=this.makeBus({name:'ambient',lowpass:3200,highpass:90,gain:0.75,delay:0.18,reverbMix:0.2});
-    this.dryBus=this.makeBus({name:'dry',lowpass:20000,highpass:20,gain:1,delay:0,reverbMix:0});
-    this.graphReady=true;
-  },
-  resumeGraph(){
-    if(!this.audioCtx||this.audioCtx.state!=='suspended') return;
-    this.audioCtx.resume().catch(()=>{});
-  },
   ensure(){
-    if(this.ready)return true;
-    if(!window.Audio)return false;
+    if(this.ready) return true;
+    if(!window.Howl || !window.Howler) return false;
+    Howler.autoUnlock = true;
+    Howler.autoSuspend = false;
+    try{ Howler.ctx?.resume?.(); }catch(e){}
     this.ready=true;
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if(AC){
-      try{
-        this.audioCtx = new AC();
-        this.buildGraph();
-      } catch(e){
-        this.audioCtx = null;
-      }
-    }
-    const unlock = new Audio();
-    const p = unlock.play();
-    if(p && p.catch){ p.catch(()=>{}); }
-    this.resumeGraph();
     return true;
+  },
+  getSound(file){
+    if(!file) return null;
+    if(!this.cache.has(file)){
+      this.cache.set(file,new Howl({src:[file], preload:true, html5:false, pool:8}));
+    }
+    return this.cache.get(file);
   },
   setOn(v){
     this.on=!!v;
     this.ensure();
-    if(!this.on){ this.stopCharge(true); this.stopAmbient(); this.loops.forEach(n=>this.releaseNode(n)); this.loops=[]; return; }
+    if(!this.on){ this.stopCharge(true); this.stopAmbient(); this.loops.forEach(n=>this.releaseNode(n)); this.loops=[]; Howler.stop(); return; }
     this.startAmbient();
   },
   getPresetLabel(){ return this.preset.label; },
   setPreset(index){
     const next=Math.max(0,Math.min(SFX_PRESETS.length-1,index%SFX_PRESETS.length));
     this.presetIndex = next;
-    if(this.on){ this.startAmbient(); }
+    if(this.on) this.startAmbient();
   },
-  nextPreset(){
-    this.setPreset((this.presetIndex+1)%SFX_PRESETS.length);
-    this.tick();
+  nextPreset(){ this.setPreset((this.presetIndex+1)%SFX_PRESETS.length); this.tick(); },
+  clearNodeTimers(node){
+    if(!node?.timers) return;
+    node.timers.forEach(t=>clearTimeout(t));
+    node.timers=[];
   },
   stopNode(node){
-    if(!node)return;
-    try{ node.pause(); node.currentTime=0; }catch(e){}
+    if(!node?.howl) return;
+    this.clearNodeTimers(node);
+    try{ node.howl.stop(node.id); }catch(e){}
   },
   releaseNode(node){
     if(!node) return;
-    const routed=node.__route;
-    if(routed){
-      try{ routed.source.disconnect(); }catch(e){}
-      try{ routed.gain.disconnect(); }catch(e){}
-      node.__route=null;
-    }
     this.stopNode(node);
-    try{ node.src=''; }catch(e){}
     this.loops=this.loops.filter(n=>n!==node);
+    if(this.ambient===node) this.ambient=null;
+    if(this.charge===node) this.charge=null;
   },
   setNodeGain(node,value,fade=0){
-    if(!node) return;
+    if(!node?.howl) return;
     const v=Math.max(0,value);
     try{
-      if(node.__route?.gain && this.audioCtx){
-        const now=this.audioCtx.currentTime;
-        node.__route.gain.gain.cancelScheduledValues(now);
-        if(fade>0){
-          node.__route.gain.gain.setValueAtTime(node.__route.gain.gain.value,now);
-          node.__route.gain.gain.linearRampToValueAtTime(v,now+fade);
-        } else {
-          node.__route.gain.gain.value=v;
-        }
-      } else {
-        node.volume=Math.min(1,v);
-      }
+      if(fade>0) node.howl.fade(node.howl.volume(node.id),v,fade*1000,node.id);
+      else node.howl.volume(v,node.id);
     }catch(e){}
   },
   fadeReleaseNode(node,fade=0.25){
     if(!node) return;
     this.setNodeGain(node,0,fade);
-    setTimeout(()=>this.releaseNode(node),Math.max(40,fade*1000+40));
+    const t=setTimeout(()=>this.releaseNode(node),Math.max(40,fade*1000+40));
+    node.timers?.push(t);
   },
   play(file, opts={}){
-    if(!this.on||!this.ready||!file)return;
-    const node=new Audio(file);
-    node.preload='auto';
-    node.loop=!!opts.loop;
-    node.playbackRate=opts.rate ?? 1;
+    if(!this.on || !this.ensure() || !file) return null;
+    const howl=this.getSound(file);
+    if(!howl) return null;
     const vol=opts.volume ?? 1;
     const startVol=opts.fadeIn ? 0 : vol;
-    node.volume=Math.min(1,Math.max(0,startVol));
-    if(this.audioCtx && this.audioCtx.createMediaElementSource){
-      this.resumeGraph();
-      const bus=(opts.bus && opts.bus.input) ? opts.bus.input : (this.magicBus ? this.magicBus.input : null);
-      if(bus){
-        const source=this.audioCtx.createMediaElementSource(node);
-        const gain=this.audioCtx.createGain();
-        gain.gain.value=startVol;
-        source.connect(gain);
-        gain.connect(bus);
-        node.__route={source,gain};
-        node.volume=1;
-      }
-    }
-    const p=node.play();
-    if(p&&p.catch) p.catch(()=>{});
+    const id=howl.play();
+    const node={howl,id,file,timers:[]};
+    try{
+      howl.volume(Math.min(1,Math.max(0,startVol)),id);
+      howl.rate(opts.rate ?? 1,id);
+      howl.loop(!!opts.loop,id);
+    }catch(e){}
     if(opts.fadeIn) this.setNodeGain(node,vol,opts.fadeIn);
     if(opts.fadeOutAfter !== undefined){
-      setTimeout(()=>this.setNodeGain(node,0,opts.fadeOut || 0.25),Math.max(0,opts.fadeOutAfter*1000));
-    }
-    if(opts.fadeTail){
-      node.addEventListener('timeupdate',()=>{
-        if(!Number.isFinite(node.duration) || node.duration<=0 || node.__fadingTail) return;
-        if(node.duration-node.currentTime <= opts.fadeTail){
-          node.__fadingTail=true;
-          this.setNodeGain(node,0,opts.fadeTail);
-        }
-      });
+      node.timers.push(setTimeout(()=>this.setNodeGain(node,0,opts.fadeOut || 0.25),Math.max(0,opts.fadeOutAfter*1000)));
     }
     if(!opts.loop){
-      const stopTimer=setTimeout(()=>{ this.releaseNode(node); }, 14000);
-      const clear=()=>clearTimeout(stopTimer);
-      node.addEventListener('ended',()=>{ clear(); this.releaseNode(node); },{once:true});
+      howl.once('end',()=>{ this.clearNodeTimers(node); this.loops=this.loops.filter(n=>n!==node); },id);
       this.loops.push(node);
-      node.addEventListener('ended',()=>{ this.loops=this.loops.filter(n=>n!==node); },{once:true});
+      node.timers.push(setTimeout(()=>this.releaseNode(node),14000));
     }
     return node;
   },
-  makeChargeHold(){
-    if(!this.audioCtx || !this.magicBus?.input) return null;
-    const ctx=this.audioCtx;
-    const out=ctx.createGain();
-    const breath=ctx.createBufferSource();
-    const len=Math.floor(ctx.sampleRate*0.7);
-    const buf=ctx.createBuffer(1,len,ctx.sampleRate);
-    const data=buf.getChannelData(0);
-    for(let i=0;i<len;i++){
-      data[i]=(Math.random()*2-1)*0.45;
-    }
-    breath.buffer=buf;
-    breath.loop=true;
-    const breathFilter=ctx.createBiquadFilter();
-    breathFilter.type='bandpass';
-    breathFilter.frequency.value=360;
-    breathFilter.Q.value=0.8;
-    const body=ctx.createOscillator();
-    body.type='sine';
-    body.frequency.value=82;
-    const bodyGain=ctx.createGain();
-    bodyGain.gain.value=0.018;
-    out.gain.value=0.0001;
-    breath.connect(breathFilter);
-    breathFilter.connect(out);
-    body.connect(bodyGain);
-    bodyGain.connect(out);
-    out.connect(this.magicBus.input);
-    breath.start();
-    body.start();
-    return {breath, body, out, breathFilter, bodyGain};
-  },
-  impactPulse(freq=72, gain=0.08, dur=0.18){
-    if(!this.audioCtx || !this.impactBus?.input) return;
-    const ctx=this.audioCtx, now=ctx.currentTime;
-    const osc=ctx.createOscillator();
-    const out=ctx.createGain();
-    osc.type='sine';
-    osc.frequency.setValueAtTime(freq,now);
-    osc.frequency.exponentialRampToValueAtTime(Math.max(28,freq*0.45),now+dur);
-    out.gain.setValueAtTime(gain,now);
-    out.gain.exponentialRampToValueAtTime(0.0001,now+dur);
-    osc.connect(out);
-    out.connect(this.impactBus.input);
-    osc.start(now);
-    osc.stop(now+dur+0.03);
-    setTimeout(()=>{ try{osc.disconnect();out.disconnect();}catch(e){} },(dur+0.08)*1000);
-  },
   dash(){
-    if(!this.ensure())return;
+    if(!this.ensure()) return;
     const rawBreath=this.preset.key==='presetLive';
     this.play(this.fileFor('dash'),{
       volume:(this.preset.gain.dash || 1),
       fadeOutAfter:rawBreath?0.08:undefined,
-      fadeOut:rawBreath?0.42:undefined,
-      bus:rawBreath?this.dryBus:this.impactBus
+      fadeOut:rawBreath?0.42:undefined
     });
-    if(!rawBreath) this.impactPulse(78,0.075,0.16);
   },
   thud(){
-    if(!this.ensure())return;
-    this.play(this.fileFor('wall'),{volume:(this.preset.gain.wall || 1), rate:0.76, bus:this.impactBus});
-    this.impactPulse(36,0.24,0.38);
+    if(!this.ensure()) return;
+    this.play(this.fileFor('wall'),{volume:(this.preset.gain.wall || 1), rate:0.86});
   },
   shimmer(preset='active'){
-    if(!this.ensure())return;
+    if(!this.ensure()) return;
     const p=this.presetFor(preset);
-    this.play(this.fileFor('shimmer',p),{volume:(p?.gain?.shimmer ?? this.preset.gain.shimmer ?? 1), bus:this.magicBus});
+    this.play(this.fileFor('shimmer',p),{volume:(p?.gain?.shimmer ?? this.preset.gain.shimmer ?? 1)});
   },
   poof(preset='active'){
-    if(!this.ensure())return;
+    if(!this.ensure()) return;
     const p=this.presetFor(preset);
-    this.play(this.fileFor('poof',p),{volume:(p?.gain?.poof ?? this.preset.gain.poof ?? 1), bus:this.magicBus});
+    this.play(this.fileFor('poof',p),{volume:(p?.gain?.poof ?? this.preset.gain.poof ?? 1)});
   },
-  bell(){
-    if(!this.ensure())return;
-    this.play(this.preset.events.bell ? `${ELEVEN_BASE}${this.preset.events.bell}` : '',{volume:(this.preset.gain.bell || 1), bus:this.magicBus});
-  },
-  stamp(){
-    if(!this.ensure())return;
-    this.play(this.fileFor('stamp'),{volume:(this.preset.gain.stamp || 1), bus:this.impactBus});
-  },
-  tick(){
-    if(!this.ensure())return;
-    this.play(this.fileFor('tick'),{volume:(this.preset.gain.tick || 1)*0.7, bus:this.uiBus});
-  },
+  bell(){ if(this.ensure()) this.play(this.fileFor('bell'),{volume:(this.preset.gain.bell || 1)}); },
+  stamp(){ if(this.ensure()) this.play(this.fileFor('stamp'),{volume:(this.preset.gain.stamp || 1)}); },
+  tick(){ if(this.ensure()) this.play(this.fileFor('tick'),{volume:(this.preset.gain.tick || 1)*0.7}); },
   chargeStart(){
-    if(!this.ensure())return;
+    if(!this.ensure()) return;
     this.stopCharge(true);
-    this.stopChargeHold(0);
     this.charge=this.play(this.fileFor('charge'),{
       loop:false,
       volume:(this.preset.gain.charge || 1),
       fadeIn:this.preset.key==='presetLive'?0.18:undefined,
-      rate:1.0,
-      bus:this.preset.key==='presetLive'?this.dryBus:this.magicBus
+      rate:1
     });
-    this.chargeHold=this.preset.key==='presetLive'?null:this.makeChargeHold();
   },
   chargeSet(p){
+    if(!this.charge) return;
     const power=Phaser.Math.Clamp(p||0,0,1);
-    try{
-      if(this.charge){
-        this.charge.playbackRate=1;
-        const v=(this.preset.gain.charge || 1)*(0.84 + power*0.16);
-        this.charge.volume=Math.min(1,v);
-        if(this.charge.__route?.gain) this.charge.__route.gain.gain.value=v;
-      }
-      if(this.chargeHold && this.audioCtx){
-        const now=this.audioCtx.currentTime;
-        const holdLevel=0.018 + power*0.052;
-        this.chargeHold.out.gain.cancelScheduledValues(now);
-        this.chargeHold.out.gain.setTargetAtTime(holdLevel,now,0.08);
-        this.chargeHold.breathFilter.frequency.setTargetAtTime(290 + power*190,now,0.12);
-        this.chargeHold.body.frequency.setTargetAtTime(74 + power*20,now,0.12);
-        this.chargeHold.bodyGain.gain.setTargetAtTime(0.014 + power*0.018,now,0.1);
-      }
-    }catch(e){}
-  },
-  stopChargeHold(release=0.12){
-    if(!this.chargeHold) return;
-    const h=this.chargeHold;
-    if(this.audioCtx && release>0){
-      const now=this.audioCtx.currentTime;
-      try{
-        h.out.gain.cancelScheduledValues(now);
-        h.out.gain.setTargetAtTime(0.0001,now,release);
-      }catch(e){}
-      setTimeout(()=>this.releaseChargeHold(h),Math.max(80,release*1000*3));
-    } else {
-      this.releaseChargeHold(h);
-    }
-    this.chargeHold=null;
-  },
-  releaseChargeHold(h){
-    try{ h.breath.stop(); }catch(e){}
-    try{ h.body.stop(); }catch(e){}
-    try{ h.breath.disconnect(); }catch(e){}
-    try{ h.body.disconnect(); }catch(e){}
-    try{ h.breathFilter.disconnect(); }catch(e){}
-    try{ h.bodyGain.disconnect(); }catch(e){}
-    try{ h.out.disconnect(); }catch(e){}
+    const v=(this.preset.gain.charge || 1)*(0.84 + power*0.16);
+    try{ this.charge.howl.rate(1,this.charge.id); }catch(e){}
+    this.setNodeGain(this.charge,Math.min(1,v),0.06);
   },
   stopCharge(cutSample=false){
-    this.stopChargeHold();
     if(!this.charge) return;
-    if(cutSample){
-      this.releaseNode(this.charge);
-      this.loops=this.loops.filter(n=>n!==this.charge);
-    }
-    this.charge=null;
+    if(cutSample) this.releaseNode(this.charge);
+    else this.charge=null;
   },
+  stopChargeHold(){},
   setHaunt(h){
     const label=(h?.sub || h?.displaySub || '').toLowerCase();
     if(label.includes('aita')) this.hauntKey='aita';
@@ -539,38 +295,40 @@ const Sfx = {
     if(this.on) this.startAmbient();
   },
   startAmbient(){
-    if(!this.ensure() || !this.on)return;
+    if(!this.ensure() || !this.on) return;
     this.stopAmbient();
-    this.startAmbientNode(0.45);
+    this.startAmbientNode(0.35);
   },
-  startAmbientNode(fadeIn=0.45){
-    const node=this.play(this.ambientFor(),{loop:false,volume:(this.preset.gain.ambient || 1), fadeIn, bus:this.ambientBus});
+  startAmbientNode(fadeIn=0.35){
+    const node=this.play(this.ambientFor(),{loop:false,volume:(this.preset.gain.ambient || 1),fadeIn});
     this.ambient=node;
     this.armAmbientRollover(node);
   },
   armAmbientRollover(node){
-    const crossfade=0.55;
-    node?.addEventListener('timeupdate',()=>{
-      if(this.ambient!==node || node.__ambientRollover || !Number.isFinite(node.duration) || node.duration<=0) return;
-      if(node.duration-node.currentTime <= crossfade){
-        node.__ambientRollover=true;
+    if(!node?.howl) return;
+    const schedule=()=>{
+      if(this.ambient!==node) return;
+      const dur=node.howl.duration(node.id) || node.howl.duration() || 0;
+      const crossfade=Math.min(0.5,Math.max(0.2,dur*0.08));
+      const delay=Math.max(120,(dur-crossfade)*1000);
+      node.timers.push(setTimeout(()=>{
+        if(this.ambient!==node) return;
         this.startAmbientNode(crossfade);
         this.fadeReleaseNode(node,crossfade);
-      }
-    });
-    node?.addEventListener('ended',()=>{
+      },delay));
+    };
+    if(node.howl.state()==='loaded') schedule();
+    else node.howl.once('load',schedule);
+    node.howl.once('end',()=>{
       if(this.ambient!==node) return;
       this.ambient=null;
       if(this.on) this.timeSafeAmbientRestart();
-    },{once:true});
+    },node.id);
   },
-  timeSafeAmbientRestart(){
-    setTimeout(()=>{ if(this.on&&!this.ambient) this.startAmbient(); },30);
-  },
+  timeSafeAmbientRestart(){ setTimeout(()=>{ if(this.on&&!this.ambient) this.startAmbient(); },30); },
   stopAmbient(){
-    if(!this.ambient)return;
-    this.fadeReleaseNode(this.ambient,0.35);
-    this.loops=this.loops.filter(n=>n!==this.ambient);
+    if(!this.ambient) return;
+    this.fadeReleaseNode(this.ambient,0.25);
     this.ambient=null;
   }
 };
