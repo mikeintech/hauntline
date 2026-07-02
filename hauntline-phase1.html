@@ -7,10 +7,10 @@
 <style>
   html,body{margin:0;padding:0;background:
     radial-gradient(circle at 50% 38%, #171225 0%, #0b0813 48%, #05030a 100%);
-    width:100%;min-height:100%;overflow-x:hidden;overflow-y:auto;
+    height:100%;overflow:hidden;
     font-family:"Avenir Next","Nunito","Segoe UI",system-ui,sans-serif;}
-  #game{position:relative;width:min(100vw,480px);min-height:100dvh;margin:0 auto;display:flex;align-items:flex-start;justify-content:center;}
-  canvas{touch-action:pan-y;display:block;margin:auto;}
+  #game{position:fixed;inset:0;width:100%;height:100dvh;display:flex;align-items:center;justify-content:center;}
+  canvas{touch-action:none;display:block;margin:auto;}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
 </head>
@@ -1054,7 +1054,6 @@ class Haunt extends Phaser.Scene {
     const dist = (90 + power*130) * (this.haunt.dashDistMul || 1);               // 2.3–5.8 tiles, subreddit-tuned
     return {dx:dx/len, dy:dy/len, dist, power};
   }
-
   /* ---------------- run flow ---------------- */
   enterRoomSequence(opts={}){
     // ghosts fade+trails draw staggered, runner drops (A5)
@@ -1693,8 +1692,20 @@ class Haunt extends Phaser.Scene {
         const a=this.trailPts[i-1],b2=this.trailPts[i];
         const age=(this.worldT-b2.t)/2;
         const grazed=this._grazeUntil&&this.worldT<this._grazeUntil;
-        this.trailG.lineStyle(3.5*(1-age)+0.5, grazed?C.ghostGlow:C.trail, 0.55*(1-age));
-        this.trailG.lineBetween(a.x,a.y,b2.x,b2.y);
+        const fade=Phaser.Math.Clamp(1-age,0,1);
+        const dx=b2.x-a.x, dy=b2.y-a.y, len=Math.hypot(dx,dy)||1;
+        const perp={x:-dy/len,y:dx/len};
+        const wob=Math.sin((this.worldT*7)+i*0.7)*fade*1.25;
+        const ax=a.x+perp.x*wob, ay=a.y+perp.y*wob;
+        const bx=b2.x+perp.x*wob, by=b2.y+perp.y*wob;
+        this.trailG.lineStyle(5.2*fade+1.1, grazed?C.ghostGlow:C.trail, 0.075*fade);
+        this.trailG.lineBetween(ax,ay,bx,by);
+        this.trailG.lineStyle(2.7*fade+0.45, grazed?C.ghostGlow:C.trail, 0.42*fade);
+        this.trailG.lineBetween(ax,ay,bx,by);
+        if(i%5===0){
+          this.trailG.fillStyle(grazed?C.ghostGlow:C.trail,0.045*fade);
+          this.trailG.fillCircle(b2.x-perp.x*wob,b2.y-perp.y*wob,3.8*fade+0.8);
+        }
       }
     }
 
@@ -1741,6 +1752,18 @@ class Haunt extends Phaser.Scene {
       if(v){
         const jitter=v.power>=0.98?1:0;
         const px=this.player.x,py=this.player.y;
+        const perp={x:-v.dy,y:v.dx};
+        const wavePts=Math.floor(v.dist/13);
+        this.aimG.lineStyle(1.2,C.trail,0.12+v.power*0.16);
+        this.aimG.beginPath();
+        for(let i=0;i<=wavePts;i++){
+          const d=i*13;
+          const wob=Math.sin(this.worldT*8+i*0.85)*(1.2+v.power*2.2);
+          const x=px+v.dx*d+perp.x*wob;
+          const y=py+v.dy*d+perp.y*wob;
+          if(i===0)this.aimG.moveTo(x,y); else this.aimG.lineTo(x,y);
+        }
+        this.aimG.strokePath();
         const K=Math.floor(v.dist/11);
         for(let i=1;i<=K;i++){
           const d=i*11;
@@ -1866,8 +1889,7 @@ window.hauntlineGame = new Phaser.Game({
   parent:'game',
   width: GAME_W, height: GAME_H,
   backgroundColor: C.nightHex,
-  scale:{ mode:Phaser.Scale.WIDTH_CONTROLS_HEIGHT, autoCenter:Phaser.Scale.CENTER_HORIZONTALLY },
-  input:{ touch:{ capture:false } },
+  scale:{ mode:Phaser.Scale.FIT, autoCenter:Phaser.Scale.CENTER_BOTH },
   scene:[Haunt]
 });
 </script>
