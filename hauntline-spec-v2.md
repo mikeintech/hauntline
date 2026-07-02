@@ -177,6 +177,35 @@ No keyboard controls · no mobile vibration API · no level editor · no AI call
 
 ---
 
+## 2.5 PHASE 2.5 — Showcase Lock (current public demo)
+
+Purpose: lock the public playable demo before adding real daily-state plumbing. The current build should be judged as a **showcase of the daily haunt idea**, not as a live Reddit ingestion system.
+
+Implemented in the current prototype:
+- Single-file Phaser/Vite/GitHub Pages demo with the full judge path: open, understand, play, die, retry, win, place curse, see curse installed on the room tile.
+- `DEMO_CHANNELS` drives recognizable subreddit variants: haunt name, layout, palette, ghost seed pool, ghost count, tempo, dash feel, fog/depth, mood chip, recap copy, and sparse dressing.
+- DEV carousel is attract mode only: it cycles sample haunts before play, stops on touch/dash, and the DEV menu remains the intentional manual switcher.
+- Prototype map QA runs for every sample haunt and warns instead of blocking.
+- Winner curse placement is visible in the final room state so the player can see what they added and where it landed.
+
+Still simulated in Phase 2.5:
+- No backend persistence.
+- No real Reddit API/comment ingestion.
+- No real midnight rollover job.
+- No LLM calls.
+- Recap numbers, usernames, comments, escape rates, and daily haunt names are curated demo fixtures.
+
+Showcase lock acceptance test:
+- A judge can understand the game loop in one screen without instructions.
+- The three subreddit variants pass the labels-covered test: layout, palette, fog/depth, ghost tempo, dash feel, mutation/mood, recap copy, and dressing are visibly different.
+- Mechanics get glow, outline, motion, or tile pads; atmosphere stays subdued and never reads as blocked tiles, traps, buttons, or clickable objects.
+- The carousel never steals the room after the player starts; player additions remain visible until the user deliberately switches from DEV.
+- The live build has no random freezes or console errors during idle, carousel, death, retry, win, or curse placement.
+
+Phase 2.5 exit gate: the live link feels complete and judge-ready. If yes -> next work can start with real daily haunt state, rollover selection hooks, recap data, and fixed-menu AI/comment curation.
+
+---
+
 ## 3. PHASE 2 — The Daily Engine (week 3)
 
 ### 3.1 Daily rollover (per subreddit)
