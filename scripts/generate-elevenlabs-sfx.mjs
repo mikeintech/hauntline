@@ -1,9 +1,16 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const API_URL = 'https://api.elevenlabs.io/v1/sound-generation';
 const OUT_DIR = path.resolve('assets/audio/elevenlabs-candidates');
-const API_KEY = process.env.ELEVENLABS_API_KEY;
+const localEnv = await readFile('.env.local', 'utf8').catch(() => '');
+const localVars = Object.fromEntries(localEnv.split(/\r?\n/).flatMap(line => {
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.startsWith('#') || !trimmed.includes('=')) return [];
+  const [key, ...value] = trimmed.split('=');
+  return [[key.trim(), value.join('=').trim()]];
+}));
+const API_KEY = process.env.ELEVENLABS_API_KEY || localVars.ELEVENLABS_API_KEY;
 const CANDIDATES = Number(process.env.CANDIDATES || 3);
 
 const assets = [
