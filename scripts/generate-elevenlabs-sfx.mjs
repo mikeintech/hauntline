@@ -51,7 +51,7 @@ const assets = [
   },
   {
     name: 'wall_hit',
-    duration_seconds: 0.45,
+    duration_seconds: 0.5,
     loop: false,
     prompt_influence: 0.5,
     text: 'Soft but impactful cartoon ghost blob hitting a stone wall. Rounded thump, compressed air puff, tiny rubbery body squash, faint stone resonance, no pain scream, no slapstick boing. It should feel satisfying and physical, not violent, with a short warm tail suitable for repeated mobile game collisions.'
@@ -65,7 +65,7 @@ const assets = [
   },
   {
     name: 'near_miss_shimmer',
-    duration_seconds: 0.45,
+    duration_seconds: 0.5,
     loop: false,
     prompt_influence: 0.5,
     text: 'A very close ghost near-miss in a haunted puzzle game. Delicate icy shimmer, tiny air sparkle, quick nervous flutter, subtle magical glint. Short, satisfying, readable as danger avoided. No coin sound, no UI beep, no melody, no harsh high frequencies.'
@@ -86,7 +86,7 @@ const assets = [
   },
   {
     name: 'ui_tick',
-    duration_seconds: 0.18,
+    duration_seconds: 0.5,
     loop: false,
     prompt_influence: 0.5,
     text: 'Restrained tactile UI click for a haunted mobile game. Soft wooden-talisman tap with tiny magical edge, very short, warm, not electronic, not arcade, not loud. Should work for buttons, debug menu, and small selections without annoying repetition.'
